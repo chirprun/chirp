@@ -216,3 +216,24 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Chirp / local SQLite
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# macOS / Windows
+.DS_Store
+Thumbs.db
+
+# Isolated git worktrees (superpowers / parallel dev)
+.worktrees/
+worktrees/
+
+# Local IDE (uncomment if you prefer not to commit team settings)
+.idea/
+.vscode/
+
+# Cursor IDE project metadata (optional; keep if you version shared rules)
+.cursor/
