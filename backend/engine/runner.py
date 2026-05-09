@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import asyncio
 import logging
+import random
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import httpx
 from sqlalchemy import select
@@ -23,6 +25,69 @@ from backend.models import AlertPolicy, AssertionResult, Run, Scenario
 
 logger = logging.getLogger(__name__)
 
+STALE_RUN_MAX_AGE = timedelta(minutes=45)
+HTTP_MAX_ATTEMPTS = 3
+BACKOFF_BASE_S = 0.35
+RETRYABLE_HTTP_STATUS = frozenset({429, 502, 503, 504})
+
+
+def _utc(dt: datetime) -> datetime:
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
+class AgentRequestFailed(Exception):
+    def __init__(self, error_code: str, message: str) -> None:
+        self.error_code = error_code
+        super().__init__(message)
+
+
+async def _backoff(attempt: int) -> None:
+    delay = BACKOFF_BASE_S * (2**attempt) + random.uniform(0, 0.12)
+    await asyncio.sleep(delay)
+
+
+async def _post_agent_json(url: str, payload: dict) -> dict:
+    """POST to agent with bounded retries on transient failures."""
+    async with httpx.AsyncClient(timeout=30) as client:
+        for attempt in range(HTTP_MAX_ATTEMPTS):
+            try:
+                response = await client.post(url, json=payload)
+                if response.status_code in RETRYABLE_HTTP_STATUS and attempt < HTTP_MAX_ATTEMPTS - 1:
+                    logger.warning(
+                        "agent_http_retry",
+                        extra={"url": url, "status": response.status_code, "attempt": attempt + 1},
+                    )
+                    await _backoff(attempt)
+                    continue
+                try:
+                    response.raise_for_status()
+                except httpx.HTTPStatusError as exc:
+                    if exc.response.status_code in RETRYABLE_HTTP_STATUS and attempt < HTTP_MAX_ATTEMPTS - 1:
+                        await _backoff(attempt)
+                        continue
+                    if exc.response.status_code >= 500:
+                        raise AgentRequestFailed("agent_http_5xx", str(exc)) from exc
+                    raise AgentRequestFailed("agent_http_4xx", str(exc)) from exc
+                try:
+                    return response.json()
+                except ValueError as exc:
+                    raise AgentRequestFailed("agent_invalid_json", f"Invalid JSON from agent: {exc}") from exc
+            except httpx.TimeoutException as exc:
+                if attempt < HTTP_MAX_ATTEMPTS - 1:
+                    logger.warning("agent_timeout_retry", extra={"url": url, "attempt": attempt + 1})
+                    await _backoff(attempt)
+                    continue
+                raise AgentRequestFailed("agent_timeout", str(exc)) from exc
+            except (httpx.ConnectError, httpx.ReadError, httpx.RemoteProtocolError) as exc:
+                if attempt < HTTP_MAX_ATTEMPTS - 1:
+                    logger.warning("agent_connection_retry", extra={"url": url, "attempt": attempt + 1})
+                    await _backoff(attempt)
+                    continue
+                raise AgentRequestFailed("agent_connection_error", str(exc)) from exc
+    raise AgentRequestFailed("agent_error", "Exceeded HTTP retry attempts")
+
 
 async def _send_slack_alert(webhook_url: str, text: str) -> None:
     async with httpx.AsyncClient(timeout=10) as client:
@@ -40,10 +105,46 @@ def _extract_llm_payload(cached: dict, rubric: str, output_text: str) -> Asserti
     )
 
 
+async def _finalize_stale_and_overlap_runs(db: AsyncSession, scenario_id: str) -> Run | None:
+    """
+    Mark long-running RUNNING rows as ERROR, then return an active RUNNING run if one remains
+    (caller should skip starting a new run).
+    """
+    now = datetime.now(timezone.utc)
+    stale_before = now - STALE_RUN_MAX_AGE
+    running_rows = (
+        await db.execute(select(Run).where(Run.scenario_id == scenario_id, Run.status == "RUNNING"))
+    ).scalars().all()
+    for old in running_rows:
+        if _utc(old.started_at) < stale_before:
+            old.status = "ERROR"
+            old.error_code = "stale_run_timeout"
+            old.error_message = f"Run exceeded {int(STALE_RUN_MAX_AGE.total_seconds())}s without completion; marked stale."
+            old.completed_at = now
+            logger.warning(
+                "stale_run_reclaimed",
+                extra={"run_id": old.id, "scenario_id": scenario_id, "started_at": old.started_at.isoformat()},
+            )
+    if running_rows:
+        await db.commit()
+
+    active = (
+        await db.execute(
+            select(Run)
+            .where(Run.scenario_id == scenario_id, Run.status == "RUNNING")
+            .order_by(Run.started_at.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if active:
+        logger.info("run_overlap_skip", extra={"scenario_id": scenario_id, "active_run_id": active.id})
+    return active
+
+
 async def run_scenario(
     scenario_id: str,
     db: AsyncSession,
-    anthropic_client,
+    llm_judge,
     demo_cache: dict | None = None,
 ) -> Run:
     scenario_query = (
@@ -54,6 +155,10 @@ async def run_scenario(
     scenario = (await db.execute(scenario_query)).scalar_one_or_none()
     if scenario is None:
         raise ValueError(f"Scenario not found: {scenario_id}")
+
+    active = await _finalize_stale_and_overlap_runs(db, scenario_id)
+    if active is not None:
+        return active
 
     run = Run(
         scenario_id=scenario.id,
@@ -72,12 +177,10 @@ async def run_scenario(
 
     started = time.perf_counter()
     try:
-        async with httpx.AsyncClient(timeout=30) as client:
-            response = await client.post(scenario.agent_endpoint, json=payload)
-            response.raise_for_status()
-            parsed = response.json()
-    except (httpx.TimeoutException, httpx.HTTPError, ValueError) as exc:
+        parsed = await _post_agent_json(scenario.agent_endpoint, payload)
+    except AgentRequestFailed as exc:
         run.status = "ERROR"
+        run.error_code = exc.error_code
         run.error_message = str(exc)
         run.completed_at = datetime.now(timezone.utc)
         run.latency_ms = int((time.perf_counter() - started) * 1000)
@@ -127,7 +230,7 @@ async def run_scenario(
             if demo_cache and scenario_id in demo_cache:
                 outcome = _extract_llm_payload(demo_cache[scenario_id], rubric, output_text)
             else:
-                outcome = await evaluate_llm_judge(output_text, rubric, anthropic_client)
+                outcome = await evaluate_llm_judge(output_text, rubric, llm_judge)
             assertion_outcomes.append(outcome)
         else:
             logger.warning("Unknown assertion type", extra={"assertion_type": assertion_type})

@@ -159,7 +159,7 @@ async def test_run_scenario_modes(monkeypatch, tmp_path: Path, mode: str, scenar
         demo_cache = None
         if mode == "injected":
             demo_cache = {scenario_id: {"passed": False, "reason": "Revealed system prompt", "confidence": 0.95}}
-        run = await run_scenario(scenario_id, session, anthropic_client=None, demo_cache=demo_cache)
+        run = await run_scenario(scenario_id, session, llm_judge=None, demo_cache=demo_cache)
         assert run.status == expected_status
         persisted = await session.get(Run, run.id)
         assert persisted is not None

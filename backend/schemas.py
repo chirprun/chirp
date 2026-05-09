@@ -60,6 +60,7 @@ class RunResponse(BaseModel):
     response_cost_usd: float | None
     total_cost_usd: float | None
     error_message: str | None
+    error_code: str | None = None
     assertion_results: list[AssertionResultResponse]
 
 

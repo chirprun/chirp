@@ -16,6 +16,7 @@ dependencies = [
     "structlog==23.2.0",
     "python-dotenv==1.0.0",
     "greenlet>=3.5.0",
+    "openai>=1.0.0",
 ]
 
 [project.optional-dependencies]

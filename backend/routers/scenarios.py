@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -166,7 +166,7 @@ async def delete_scenario(scenario_id: str, db: AsyncSession = Depends(get_db)):
 
 
 @router.patch("/api/scenarios/{scenario_id}/toggle")
-async def toggle_scenario(scenario_id: str, db: AsyncSession = Depends(get_db)):
+async def toggle_scenario(scenario_id: str, request: Request, db: AsyncSession = Depends(get_db)):
     scenario = (await db.execute(select(Scenario).where(Scenario.id == scenario_id))).scalar_one_or_none()
     if not scenario:
         raise HTTPException(status_code=404, detail="Scenario not found")
@@ -174,7 +174,7 @@ async def toggle_scenario(scenario_id: str, db: AsyncSession = Depends(get_db)):
     scenario.updated_at = datetime.now(timezone.utc)
     await db.commit()
     await db.refresh(scenario)
-    await reschedule_scenario(scenario, AsyncSessionLocal, anthropic_client=None)
+    await reschedule_scenario(scenario, AsyncSessionLocal, getattr(request.app.state, "llm_judge", None))
     loaded = (
         await db.execute(select(Scenario).where(Scenario.id == scenario.id).options(selectinload(Scenario.assertions)))
     ).scalar_one()
@@ -185,8 +185,8 @@ async def toggle_scenario(scenario_id: str, db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/api/scenarios/{scenario_id}/trigger")
-async def trigger_scenario(scenario_id: str, db: AsyncSession = Depends(get_db)):
-    run = await run_scenario(scenario_id, db, anthropic_client=None)
+async def trigger_scenario(scenario_id: str, request: Request, db: AsyncSession = Depends(get_db)):
+    run = await run_scenario(scenario_id, db, getattr(request.app.state, "llm_judge", None))
     return {
         "id": run.id,
         "scenario_id": run.scenario_id,

@@ -38,32 +38,17 @@ def test_evaluate_tool_sequence_cases():
     assert evaluate_tool_sequence([], ["search"]).passed is False
 
 
-class _MockRespContent:
-    def __init__(self, text: str):
-        self.text = text
-
-
-class _MockResp:
-    def __init__(self, text: str):
-        self.content = [_MockRespContent(text)]
-
-
-class _MessagesAPI:
+class _MockJudge:
     def __init__(self, text: str):
         self._text = text
 
-    async def create(self, **_kwargs):
-        return _MockResp(self._text)
-
-
-class _MockAnthropic:
-    def __init__(self, text: str):
-        self.messages = _MessagesAPI(text)
+    async def complete(self, _user_message: str) -> str:
+        return self._text
 
 
 @pytest.mark.asyncio
 async def test_evaluate_llm_judge_pass():
-    client = _MockAnthropic('{"passed": true, "reason": "good", "confidence": 0.9}')
+    client = _MockJudge('{"passed": true, "reason": "good", "confidence": 0.9}')
     result = await evaluate_llm_judge("output", "rubric", client)
     assert result.passed is True
     assert result.confidence == 0.9
@@ -71,7 +56,7 @@ async def test_evaluate_llm_judge_pass():
 
 @pytest.mark.asyncio
 async def test_evaluate_llm_judge_fail():
-    client = _MockAnthropic('{"passed": false, "reason": "bad", "confidence": 0.6}')
+    client = _MockJudge('{"passed": false, "reason": "bad", "confidence": 0.6}')
     result = await evaluate_llm_judge("output", "rubric", client)
     assert result.passed is False
     assert result.confidence == 0.6
@@ -79,7 +64,14 @@ async def test_evaluate_llm_judge_fail():
 
 @pytest.mark.asyncio
 async def test_evaluate_llm_judge_parse_error_defaults():
-    client = _MockAnthropic("not-json")
+    client = _MockJudge("not-json")
     result = await evaluate_llm_judge("output", "rubric", client)
     assert result.passed is False
     assert result.confidence == 0.5
+
+
+@pytest.mark.asyncio
+async def test_evaluate_llm_judge_missing_client():
+    result = await evaluate_llm_judge("output", "rubric", None)
+    assert result.passed is False
+    assert "not configured" in result.detail

@@ -13,15 +13,15 @@ logger = logging.getLogger(__name__)
 scheduler = AsyncIOScheduler()
 
 
-def _build_job(scenario_id: str, db_factory, anthropic_client):
+def _build_job(scenario_id: str, db_factory, llm_judge):
     async def _job():
         async with db_factory() as db:
-            await run_scenario(scenario_id, db, anthropic_client)
+            await run_scenario(scenario_id, db, llm_judge)
 
     return _job
 
 
-async def start_scheduler(db_factory, anthropic_client):
+async def start_scheduler(db_factory, llm_judge):
     async with db_factory() as db:
         scenarios = (
             await db.execute(select(Scenario).where(Scenario.is_active.is_(True)))
@@ -29,7 +29,7 @@ async def start_scheduler(db_factory, anthropic_client):
 
     for scenario in scenarios:
         scheduler.add_job(
-            _build_job(scenario.id, db_factory, anthropic_client),
+            _build_job(scenario.id, db_factory, llm_judge),
             trigger="interval",
             minutes=scenario.schedule_minutes,
             id=scenario.id,
@@ -40,7 +40,7 @@ async def start_scheduler(db_factory, anthropic_client):
     logger.info("Scheduler started with scenarios", extra={"count": len(scenarios)})
 
 
-async def reschedule_scenario(scenario, db_factory, anthropic_client):
+async def reschedule_scenario(scenario, db_factory, llm_judge):
     try:
         scheduler.remove_job(scenario.id)
     except Exception:
@@ -48,7 +48,7 @@ async def reschedule_scenario(scenario, db_factory, anthropic_client):
 
     if scenario.is_active:
         scheduler.add_job(
-            _build_job(scenario.id, db_factory, anthropic_client),
+            _build_job(scenario.id, db_factory, llm_judge),
             trigger="interval",
             minutes=scenario.schedule_minutes,
             id=scenario.id,

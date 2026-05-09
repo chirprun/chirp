@@ -90,6 +90,7 @@ class Run(Base):
     total_cost_usd: Mapped[float | None] = mapped_column(Float, nullable=True)
     raw_response: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    error_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
     scenario: Mapped["Scenario"] = relationship(back_populates="runs")
     assertion_results: Mapped[list["AssertionResult"]] = relationship(

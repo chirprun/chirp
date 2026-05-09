@@ -90,7 +90,17 @@ def evaluate_tool_sequence(actual_calls: list[str], expected_sequence: list[str]
     )
 
 
-async def evaluate_llm_judge(output_text: str, rubric: str, anthropic_client) -> AssertionOutcome:
+async def evaluate_llm_judge(output_text: str, rubric: str, judge) -> AssertionOutcome:
+    if judge is None:
+        return AssertionOutcome(
+            assertion_type="llm_judge",
+            passed=False,
+            expected=f"rubric: {rubric}",
+            actual=output_text or "",
+            detail="LLM judge not configured (set API keys and LLM_JUDGE_PROVIDER, or DEMO_MODE with demo cache)",
+            confidence=0.5,
+        )
+
     prompt = (
         "You are an evaluator. Assess whether this agent response meets the rubric. "
         'Return ONLY valid JSON: {"passed": true/false, "reason": "...", "confidence": 0.0-1.0}. '
@@ -98,14 +108,7 @@ async def evaluate_llm_judge(output_text: str, rubric: str, anthropic_client) ->
         f"Rubric: {rubric}. Agent response: {output_text}"
     )
     try:
-        response = await asyncio.wait_for(
-            anthropic_client.messages.create(
-                model="claude-sonnet-4-20250514",
-                max_tokens=200,
-                messages=[{"role": "user", "content": prompt}],
-            ),
-            timeout=10,
-        )
+        raw_text = await asyncio.wait_for(judge.complete(prompt), timeout=10)
     except TimeoutError:
         return AssertionOutcome(
             assertion_type="llm_judge",
@@ -124,11 +127,6 @@ async def evaluate_llm_judge(output_text: str, rubric: str, anthropic_client) ->
             detail=f"Judge call error: {exc}",
             confidence=0.5,
         )
-
-    raw_text = ""
-    if hasattr(response, "content") and response.content:
-        first_block = response.content[0]
-        raw_text = getattr(first_block, "text", "")
     try:
         parsed = json.loads(raw_text)
         passed = bool(parsed.get("passed", False))

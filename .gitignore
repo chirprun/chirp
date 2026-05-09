@@ -217,7 +217,10 @@ __marimo__/
 # Streamlit
 .streamlit/secrets.toml
 
-# Chirp / local SQLite
+# Web / Node
+node_modules/
+frontend/dist/
+*.tsbuildinfo
 *.db
 *.db-journal
 *.db-wal

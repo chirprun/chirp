@@ -25,6 +25,7 @@ def _run_to_dict(run: Run, assertion_results: list[AssertionResult]) -> dict:
         "response_cost_usd": run.response_cost_usd,
         "total_cost_usd": run.total_cost_usd,
         "error_message": run.error_message,
+        "error_code": run.error_code,
         "assertion_results": [
             {
                 "id": result.id,
