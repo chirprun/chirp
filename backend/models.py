@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from uuid import uuid4
 
-from sqlalchemy import JSON, Boolean, DateTime, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import JSON, Boolean, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -111,3 +111,39 @@ class AssertionResult(Base):
     confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
 
     run: Mapped["Run"] = relationship(back_populates="assertion_results")
+
+
+class AlertDelivery(Base):
+    """Audit trail for outbound alert webhooks (e.g. Slack)."""
+
+    __tablename__ = "alert_deliveries"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
+    run_id: Mapped[str] = mapped_column(String, ForeignKey("runs.id"), nullable=False, index=True)
+    scenario_id: Mapped[str] = mapped_column(String, ForeignKey("scenarios.id"), nullable=False, index=True)
+    channel: Mapped[str] = mapped_column(String(32), nullable=False, default="slack")
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending")
+    http_status: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    text_snippet: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_utc_now)
+    delivered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class QuotaUsage(Base):
+    """Per-scenario monthly aggregates for quota dashboards."""
+
+    __tablename__ = "quota_usage"
+    __table_args__ = (UniqueConstraint("scenario_id", "month", name="uq_quota_scenario_month"),)
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
+    scenario_id: Mapped[str] = mapped_column(String, ForeignKey("scenarios.id"), nullable=False, index=True)
+    month: Mapped[str] = mapped_column(String(7), nullable=False)  # YYYY-MM
+    runs_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    total_cost_usd: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    total_input_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    total_output_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_utc_now)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=_utc_now, onupdate=_utc_now
+    )

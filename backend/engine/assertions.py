@@ -4,6 +4,8 @@ import asyncio
 import json
 from dataclasses import dataclass
 
+from backend.engine.judge_retry import judge_complete_with_retry
+
 PROMPT_TOKEN_RATE = 0.000003
 RESPONSE_TOKEN_RATE = 0.000015
 
@@ -108,8 +110,8 @@ async def evaluate_llm_judge(output_text: str, rubric: str, judge) -> AssertionO
         f"Rubric: {rubric}. Agent response: {output_text}"
     )
     try:
-        raw_text = await asyncio.wait_for(judge.complete(prompt), timeout=10)
-    except TimeoutError:
+        raw_text = await judge_complete_with_retry(judge, prompt, timeout_s=10)
+    except asyncio.TimeoutError:
         return AssertionOutcome(
             assertion_type="llm_judge",
             passed=False,

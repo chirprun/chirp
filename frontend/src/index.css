@@ -337,3 +337,86 @@ table.runs th {
   padding: 3rem;
   color: var(--muted);
 }
+
+/* chirp-ui: streaming check panel */
+.chirp-stream-panel {
+  margin-top: 0.75rem;
+  padding: 0.75rem 1rem;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--surface2);
+  font-size: 0.85rem;
+}
+
+.chirp-stream-thinking {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  color: var(--muted);
+}
+
+.chirp-stream-thinking-label {
+  color: var(--text);
+}
+
+.chirp-stream-dots {
+  display: inline-flex;
+  gap: 0.2rem;
+}
+
+.chirp-stream-dots span {
+  width: 0.35rem;
+  height: 0.35rem;
+  border-radius: 50%;
+  background: var(--info);
+  animation: chirp-dot 1s ease-in-out infinite;
+}
+
+.chirp-stream-dots span:nth-child(2) {
+  animation-delay: 0.15s;
+}
+
+.chirp-stream-dots span:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
+@keyframes chirp-dot {
+  0%,
+  100% {
+    opacity: 0.25;
+    transform: translateY(0);
+  }
+  50% {
+    opacity: 1;
+    transform: translateY(-2px);
+  }
+}
+
+.chirp-stream-response {
+  margin-top: 0.5rem;
+}
+
+.chirp-stream-response-title {
+  margin: 0 0 0.35rem;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+
+.chirp-stream-meta {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--text);
+}
+
+.chirp-stream-meta code {
+  font-family: var(--mono);
+  font-size: 0.78rem;
+}
+
+.chirp-stream-error {
+  margin: 0;
+  color: var(--danger);
+  font-size: 0.85rem;
+}

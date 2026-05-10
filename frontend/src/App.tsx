@@ -24,6 +24,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import { ThinkingResponsePanel, useScenarioCheckStream } from "./chirp-ui";
 
 function statusChip(status: string | null) {
   if (!status) return <span className="chip none">—</span>;
@@ -173,10 +174,12 @@ function ScenarioDetail({ scenarioId, onClose }: { scenarioId: string; onClose: 
 }
 
 export default function App() {
+  const checkStream = useScenarioCheckStream();
   const [scenarios, setScenarios] = useState<Scenario[]>([]);
   const [healthOk, setHealthOk] = useState<boolean | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const [streamPanelFor, setStreamPanelFor] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [detailRefresh, setDetailRefresh] = useState(0);
 
@@ -204,6 +207,8 @@ export default function App() {
   }, [refresh]);
 
   async function handleTrigger(id: string) {
+    checkStream.reset();
+    setStreamPanelFor(null);
     setBusy(id);
     try {
       await triggerScenario(id);
@@ -211,6 +216,18 @@ export default function App() {
       if (expandedId === id) setDetailRefresh((n) => n + 1);
     } catch (e) {
       alert(e instanceof Error ? e.message : "Trigger failed");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function handleStreamCheck(id: string) {
+    setStreamPanelFor(id);
+    setBusy(id);
+    try {
+      await checkStream.start(id);
+      await refresh();
+      if (expandedId === id) setDetailRefresh((n) => n + 1);
     } finally {
       setBusy(null);
     }
@@ -292,7 +309,18 @@ export default function App() {
                 disabled={busy === s.id}
                 onClick={() => handleTrigger(s.id)}
               >
-                {busy === s.id ? "Running…" : "Trigger run"}
+                {busy === s.id && streamPanelFor !== s.id ? "Running…" : "Trigger run"}
+              </button>
+              <button
+                type="button"
+                className="btn-secondary"
+                disabled={busy === s.id}
+                onClick={() => handleStreamCheck(s.id)}
+                title="Run check with live thinking → response stream"
+              >
+                {busy === s.id && streamPanelFor === s.id && checkStream.phase === "thinking"
+                  ? "Streaming…"
+                  : "Stream check"}
               </button>
               <button
                 type="button"
@@ -306,6 +334,15 @@ export default function App() {
                 {expandedId === s.id ? "Hide details" : "Details"}
               </button>
             </div>
+
+            {streamPanelFor === s.id && checkStream.phase !== "idle" && (
+              <ThinkingResponsePanel
+                phase={checkStream.phase}
+                thinkingMessage={checkStream.thinkingMessage}
+                run={checkStream.run}
+                error={checkStream.error}
+              />
+            )}
 
             {expandedId === s.id && (
               <ScenarioDetail key={detailRefresh} scenarioId={s.id} onClose={() => setExpandedId(null)} />

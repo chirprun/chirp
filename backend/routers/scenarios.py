@@ -12,6 +12,7 @@ from backend.database import AsyncSessionLocal, get_db
 from backend.engine.runner import run_scenario
 from backend.engine.scheduler import reschedule_scenario
 from backend.models import AlertPolicy, Run, Scenario, ScenarioAssertion
+from backend.rate_limit import limiter, trigger_limit_string
 from backend.schemas import ScenarioCreate, TemplateResponse
 
 router = APIRouter(tags=["scenarios"])
@@ -185,7 +186,8 @@ async def toggle_scenario(scenario_id: str, request: Request, db: AsyncSession =
 
 
 @router.post("/api/scenarios/{scenario_id}/trigger")
-async def trigger_scenario(scenario_id: str, request: Request, db: AsyncSession = Depends(get_db)):
+@limiter.limit(trigger_limit_string())
+async def trigger_scenario(request: Request, scenario_id: str, db: AsyncSession = Depends(get_db)):
     run = await run_scenario(scenario_id, db, getattr(request.app.state, "llm_judge", None))
     return {
         "id": run.id,

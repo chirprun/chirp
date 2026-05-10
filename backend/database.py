@@ -23,11 +23,53 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
 def _migrate_sqlite_schema(sync_conn) -> None:
     """Lightweight additive migrations for existing SQLite files."""
     insp = inspect(sync_conn)
-    if "runs" not in insp.get_table_names():
-        return
-    cols = {c["name"] for c in insp.get_columns("runs")}
-    if "error_code" not in cols:
-        sync_conn.execute(text("ALTER TABLE runs ADD COLUMN error_code VARCHAR(64)"))
+    tables = set(insp.get_table_names())
+    if "runs" in tables:
+        cols = {c["name"] for c in insp.get_columns("runs")}
+        if "error_code" not in cols:
+            sync_conn.execute(text("ALTER TABLE runs ADD COLUMN error_code VARCHAR(64)"))
+
+    if "alert_deliveries" not in tables:
+        sync_conn.execute(
+            text(
+                """
+                CREATE TABLE alert_deliveries (
+                    id VARCHAR(36) PRIMARY KEY,
+                    run_id VARCHAR(36) NOT NULL REFERENCES runs(id),
+                    scenario_id VARCHAR(36) NOT NULL REFERENCES scenarios(id),
+                    channel VARCHAR(32) NOT NULL DEFAULT 'slack',
+                    status VARCHAR(32) NOT NULL DEFAULT 'pending',
+                    http_status INTEGER,
+                    error_message TEXT,
+                    text_snippet TEXT,
+                    created_at TIMESTAMP NOT NULL,
+                    delivered_at TIMESTAMP
+                )
+                """
+            )
+        )
+        sync_conn.execute(text("CREATE INDEX IF NOT EXISTS ix_alert_deliveries_scenario ON alert_deliveries(scenario_id)"))
+
+    if "quota_usage" not in tables:
+        sync_conn.execute(
+            text(
+                """
+                CREATE TABLE quota_usage (
+                    id VARCHAR(36) PRIMARY KEY,
+                    scenario_id VARCHAR(36) NOT NULL REFERENCES scenarios(id),
+                    month VARCHAR(7) NOT NULL,
+                    runs_count INTEGER NOT NULL DEFAULT 0,
+                    total_cost_usd REAL NOT NULL DEFAULT 0,
+                    total_input_tokens INTEGER NOT NULL DEFAULT 0,
+                    total_output_tokens INTEGER NOT NULL DEFAULT 0,
+                    created_at TIMESTAMP NOT NULL,
+                    updated_at TIMESTAMP NOT NULL,
+                    UNIQUE(scenario_id, month)
+                )
+                """
+            )
+        )
+        sync_conn.execute(text("CREATE INDEX IF NOT EXISTS ix_quota_usage_scenario ON quota_usage(scenario_id)"))
 
 
 async def init_db() -> None:

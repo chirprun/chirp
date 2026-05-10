@@ -1,6 +1,12 @@
 import pytest
 
-from chirp_sdk.wrap import wrap
+from chirp_sdk.wrap import normalize_agent_result, wrap
+
+
+def test_normalize_agent_result_dict_aliases():
+    out = normalize_agent_result({"content": "c", "tools_used": [{"n": "t"}]})
+    assert out["output"] == "c"
+    assert out["tool_calls"] == [{"n": "t"}]
 
 
 @pytest.mark.asyncio
