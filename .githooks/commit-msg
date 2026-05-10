@@ -1,0 +1,5 @@
+#!/bin/sh
+# Drop Cursor IDE co-author trailers so plain `git commit` stays human-only.
+msg="$1"
+tmp="${msg}.strip.$$"
+sed '/^Co-authored-by:.*[Cc]ursor/d;/^Co-authored-by:.*@cursor\.com/d' "$msg" >"$tmp" && mv "$tmp" "$msg"
